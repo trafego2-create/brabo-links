@@ -213,8 +213,7 @@ async def painel(req: Request):
     if isinstance(u, RedirectResponse):
         return u
     dados = await to_thread.run_sync(store.painel)
-    camps = await to_thread.run_sync(store.campanhas)
-    usadas = await to_thread.run_sync(store.utms_usadas)
+    camps, usadas = store.listas(dados["links"])
     return render(req, "painel.html", u, d=dados, campanhas=camps, usadas=usadas, nav="links")
 
 
@@ -232,8 +231,7 @@ async def pagina_link(req: Request, link_id: int, periodo: str = "30"):
     if periodo not in PERIODOS:
         periodo = "30"
     st = await to_thread.run_sync(store.estatisticas, link_id, PERIODOS[periodo])
-    camps = await to_thread.run_sync(store.campanhas)
-    usadas = await to_thread.run_sync(store.utms_usadas)
+    camps, usadas = await to_thread.run_sync(store.listas)
     return render(req, "link.html", u, link=link, st=st, periodo=periodo, campanhas=camps, usadas=usadas,
                   final=destino_final(link), nav="links")
 

@@ -2,12 +2,13 @@
 import logging
 import re
 import threading
+import time
 import unicodedata
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, insert, inspect, select, text, update
+from sqlalchemy import String, and_, case, cast, func, insert, inspect, literal_column, select, text, union_all, update
 
 from . import config, security
 from .db import SCHEMA, clicks, links, metadata, users
@@ -105,6 +106,7 @@ class Store:
         self._cache_lock = threading.Lock()
         self._buffer: list[dict] = []
         self._buf_lock = threading.Lock()
+        self._usuarios_cache: dict[int, tuple[float, dict | None]] = {}
 
     # Estrutura
     def init(self) -> None:
@@ -206,8 +208,12 @@ class Store:
             ).returning(users.c.id)).scalar_one()
 
     def usuario(self, uid: int) -> dict | None:
+        hit = self._usuarios_cache.get(uid)
+        if hit and time.monotonic() - hit[0] < 30:
+            return dict(hit[1]) if hit[1] else None
         with self.engine.connect() as c:
             r = c.execute(select(users).where(users.c.id == uid)).mappings().first()
+        self._usuarios_cache[uid] = (time.monotonic(), dict(r) if r else None)
         return dict(r) if r else None
 
     def usuario_por_email(self, email: str) -> dict | None:
@@ -224,6 +230,7 @@ class Store:
             campos["senha_hash"] = security.hash_password(campos.pop("senha"))
         with self.engine.begin() as c:
             c.execute(update(users).where(users.c.id == uid).values(**campos))
+        self._usuarios_cache.pop(uid, None)
 
     # ── Links ──
     def link(self, link_id: int) -> dict | None:
@@ -259,18 +266,15 @@ class Store:
         self._cache_put(row)
         return row
 
-    def utms_usadas(self) -> dict[str, list[str]]:
-        out = {}
-        with self.engine.connect() as c:
-            for k in UTMS:
-                out[k] = [r[0] for r in c.execute(
-                    select(links.c[k]).where(links.c[k] != "").distinct().order_by(links.c[k]).limit(200))]
-        return out
-
-    def campanhas(self) -> list[str]:
-        with self.engine.connect() as c:
-            return [r[0] for r in c.execute(
-                select(links.c.campanha).where(links.c.campanha != "").distinct().order_by(links.c.campanha))]
+    def listas(self, rows: list[dict] | None = None) -> tuple[list[str], dict[str, list[str]]]:
+        """Campanhas e UTMs já usadas (sugestões dos campos). Com `rows` (o painel já leu os
+        links) não vai ao banco; sem, faz uma consulta só — cada ida ao banco custa ~0,2 s."""
+        if rows is None:
+            with self.engine.connect() as c:
+                rows = [dict(r) for r in c.execute(select(links.c.campanha, *[links.c[k] for k in UTMS])).mappings()]
+        camps = sorted({r["campanha"] for r in rows if r["campanha"]})
+        usadas = {k: sorted({r[k] for r in rows if r[k]})[:200] for k in UTMS}
+        return camps, usadas
 
     # ── Painel ──
     def painel(self) -> dict:
@@ -320,32 +324,43 @@ class Store:
             ini = None
         humano = and_(*cond, clicks.c.bot.is_(False))
         out: dict = {}
+        # Duas idas ao banco no total (ele fica longe: cada consulta custa ~0,2 s).
+        # 1) totais; 2) um GROUP BY por dimensão, todos juntos num UNION ALL.
+        dims = {
+            "origem": clicks.c.origem, "dispositivo": clicks.c.dispositivo, "sistema": clicks.c.sistema,
+            "navegador": clicks.c.navegador, "pais": clicks.c.pais, "sites": clicks.c.referer_host,
+            "utm_source": clicks.c.utm_source, "utm_medium": clicks.c.utm_medium,
+            "utm_campaign": clicks.c.utm_campaign, "utm_content": clicks.c.utm_content,
+            "utm_term": clicks.c.utm_term, "ref": clicks.c.ref,
+            "dia": cast(clicks.c.dia, String), "hora": cast(clicks.c.hora, String),
+        }
+        partes = [select(literal_column(f"'{nome}'").label("dim"), col.label("v"), func.count().label("n")).where(humano).group_by(col)
+                  for nome, col in dims.items()]
         with self.engine.connect() as c:
-            out["total"] = c.execute(select(func.count()).where(humano)).scalar() or 0
-            out["unicos"] = c.execute(select(func.count(func.distinct(clicks.c.visitante))).where(humano)).scalar() or 0
-            out["bots"] = c.execute(select(func.count()).where(and_(*cond, clicks.c.bot.is_(True)))).scalar() or 0
-            por_dia = dict((_d(k), v) for k, v in c.execute(
-                select(clicks.c.dia, func.count()).where(humano).group_by(clicks.c.dia)).all())
-            por_hora = dict(c.execute(select(clicks.c.hora, func.count()).where(humano).group_by(clicks.c.hora)).all())
+            tot = c.execute(select(
+                func.count().filter(clicks.c.bot.is_(False)),
+                func.count(func.distinct(case((clicks.c.bot.is_(False), clicks.c.visitante)))),
+                func.count().filter(clicks.c.bot.is_(True)),
+                func.min(clicks.c.dia),
+            ).where(and_(*cond))).one()
+            linhas = c.execute(union_all(*partes)).all()
+        out["total"], out["unicos"], out["bots"] = tot[0] or 0, tot[1] or 0, tot[2] or 0
+        grupos: dict[str, list[tuple[str, int]]] = defaultdict(list)
+        for dim, v, n in linhas:
+            grupos[dim].append((v, n))
+        por_dia = {_d(v): n for v, n in grupos["dia"]}
+        por_hora = {int(v): n for v, n in grupos["hora"]}
 
-            def top(col, limite=8):
-                q = (select(col, func.count().label("n")).where(humano).group_by(col)
-                     .order_by(func.count().desc()).limit(limite))
-                return [{"nome": k or "—", "n": n} for k, n in c.execute(q).all()]
+        def top(nome, limite=8, vazio=False):
+            itens = sorted(grupos[nome], key=lambda x: (-x[1], x[0] or ""))
+            return [{"nome": v or "—", "n": n} for v, n in itens if vazio or v][:limite]
 
-            out["origem"] = top(clicks.c.origem)
-            out["dispositivo"] = top(clicks.c.dispositivo)
-            out["sistema"] = top(clicks.c.sistema)
-            out["navegador"] = top(clicks.c.navegador)
-            out["pais"] = [x for x in top(clicks.c.pais) if x["nome"] != "—"]
-            out["utm_source"] = [x for x in top(clicks.c.utm_source) if x["nome"] != "—"]
-            out["utm_campaign"] = [x for x in top(clicks.c.utm_campaign) if x["nome"] != "—"]
-            out["utm_medium"] = [x for x in top(clicks.c.utm_medium) if x["nome"] != "—"]
-            out["utm_content"] = [x for x in top(clicks.c.utm_content) if x["nome"] != "—"]
-            out["utm_term"] = [x for x in top(clicks.c.utm_term) if x["nome"] != "—"]
-            out["ref"] = [x for x in top(clicks.c.ref, 50) if x["nome"] != "—"]
-            out["sites"] = [x for x in top(clicks.c.referer_host) if x["nome"] != "—"]
-            primeiro = c.execute(select(func.min(clicks.c.dia)).where(and_(clicks.c.link_id == link_id))).scalar()
+        for nome in ("origem", "dispositivo", "sistema", "navegador"):
+            out[nome] = top(nome, vazio=True)
+        for nome in ("pais", "sites", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"):
+            out[nome] = top(nome)
+        out["ref"] = top("ref", 50)
+        primeiro = tot[3]
         if ini is None:
             ini = _d(primeiro) if primeiro else d0
         n_dias = (d0 - ini).days + 1
