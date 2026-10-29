@@ -202,7 +202,7 @@ async def logout():
 
 @app.get("/")
 async def raiz(req: Request):
-    return RedirectResponse("/app" if usuario_atual(req) else config.FALLBACK_URL, status_code=302)
+    return RedirectResponse("/app" if usuario_atual(req) else "/login", status_code=302)
 
 
 @app.get("/app")
