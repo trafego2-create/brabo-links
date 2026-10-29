@@ -26,7 +26,7 @@ from sqlalchemy.exc import IntegrityError
 
 from . import config, security, tracking
 from .db import make_engine
-from .store import CATEGORIAS, PAPEIS, TZ, Store, detecta_categoria, normaliza_destino, normaliza_slug, \
+from .store import CATEGORIAS, PAPEIS, TZ, UTMS, Store, detecta_categoria, normaliza_destino, normaliza_slug, \
     slugify, valida_destino, valida_slug
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -99,6 +99,8 @@ def _dt(v) -> str:
 
 
 templates.env.filters["num"] = _num
+templates.env.globals["link_dict"] = lambda r: {
+    k: r[k] for k in ("id", "slug", "destino", "titulo", "categoria", "campanha", "ativo", *UTMS)}
 templates.env.filters["dt"] = _dt
 templates.env.globals.update(
     CATEGORIAS=CATEGORIAS, PAPEIS=PAPEIS,
@@ -212,7 +214,8 @@ async def painel(req: Request):
         return u
     dados = await to_thread.run_sync(store.painel)
     camps = await to_thread.run_sync(store.campanhas)
-    return render(req, "painel.html", u, d=dados, campanhas=camps, nav="links")
+    usadas = await to_thread.run_sync(store.utms_usadas)
+    return render(req, "painel.html", u, d=dados, campanhas=camps, usadas=usadas, nav="links")
 
 
 PERIODOS = {"7": 7, "30": 30, "90": 90, "tudo": None}
@@ -230,7 +233,9 @@ async def pagina_link(req: Request, link_id: int, periodo: str = "30"):
         periodo = "30"
     st = await to_thread.run_sync(store.estatisticas, link_id, PERIODOS[periodo])
     camps = await to_thread.run_sync(store.campanhas)
-    return render(req, "link.html", u, link=link, st=st, periodo=periodo, campanhas=camps, nav="links")
+    usadas = await to_thread.run_sync(store.utms_usadas)
+    return render(req, "link.html", u, link=link, st=st, periodo=periodo, campanhas=camps, usadas=usadas,
+                  final=destino_final(link), nav="links")
 
 
 @app.get("/app/links/{link_id}/cliques.csv")
@@ -304,16 +309,28 @@ def _campos_link(body: dict, link_id: int | None = None) -> dict:
     categoria = str(body.get("categoria") or "") or detecta_categoria(destino)
     if categoria not in CATEGORIAS:
         categoria = "pagina"
+    utms = {k: " ".join(str(body.get(k) or "").split())[:200] for k in UTMS}
+    if utms["utm_source"] and not utms["utm_medium"]:
+        raise HTTPException(400, "Preencha também o utm_medium (no Active os dois andam juntos, ex.: ig / social).")
     return {
         "slug": slug, "destino": destino, "categoria": categoria,
         "titulo": str(body.get("titulo", "")).strip()[:200] or slug,
         "campanha": str(body.get("campanha", "")).strip().upper()[:60],
+        **utms,
     }
 
 
 def _link_json(r: dict) -> dict:
-    return {**{k: r[k] for k in ("id", "slug", "destino", "titulo", "categoria", "campanha", "ativo")},
-            "curto": f"{config.PUBLIC_BASE}/{r['slug']}"}
+    return {**{k: r[k] for k in ("id", "slug", "destino", "titulo", "categoria", "campanha", "ativo", *UTMS)},
+            "curto": f"{config.PUBLIC_BASE}/{r['slug']}", "final": destino_final(r)}
+
+
+def destino_final(link: dict, extra: list[tuple[str, str]] | None = None) -> str:
+    """Destino + UTMs fixas do link; parâmetros do clique (extra) vencem as fixas."""
+    fixas = [(k, link[k]) for k in UTMS if link.get(k)]
+    extra = extra or []
+    chaves_extra = {k for k, _ in extra}
+    return _junta_query(link["destino"], [(k, v) for k, v in fixas if k not in chaves_extra] + extra)
 
 
 @app.get("/api/sugestao")
@@ -471,13 +488,14 @@ async def redirecionar(req: Request, slug: str):
         return templates.TemplateResponse(req, "nao_encontrado.html", {"fallback": config.FALLBACK_URL},
                                           status_code=404)
     extra = list(req.query_params.multi_items())
-    destino = _junta_query(alvo["destino"], extra)
+    destino = destino_final(alvo, extra)
 
     if req.method == "GET":
         ua = req.headers.get("user-agent", "")[:500]
         q = req.query_params
-        utm_source = q.get("utm_source", "")[:100]
-        origem, host = tracking.origem(ua, req.headers.get("referer", ""), utm_source)
+        # origem só pela UTM do clique: a fixa do link diz para onde ele foi feito, não de onde a pessoa veio
+        origem, host = tracking.origem(ua, req.headers.get("referer", ""), q.get("utm_source", "")[:100])
+        utm = {k: (q.get(k) or alvo.get(k) or "")[:200] for k in UTMS}
         tipo, so, nav = tracking.dispositivo(ua)
         ip = tracking.client_ip(req.headers, req.client.host if req.client else "")
         t = datetime.now(timezone.utc)
@@ -488,8 +506,8 @@ async def redirecionar(req: Request, slug: str):
             "origem": origem[:30], "referer_host": host[:120],
             "dispositivo": tipo, "sistema": so, "navegador": nav,
             "pais": (req.headers.get("cf-ipcountry", "") or "")[:2].upper().replace("XX", ""),
-            "utm_source": utm_source, "utm_medium": q.get("utm_medium", "")[:100],
-            "utm_campaign": q.get("utm_campaign", "")[:150], "utm_content": q.get("utm_content", "")[:150],
+            "utm_source": utm["utm_source"][:100], "utm_medium": utm["utm_medium"][:100],
+            "utm_campaign": utm["utm_campaign"], "utm_content": utm["utm_content"], "utm_term": utm["utm_term"],
             "ref": (q.get("ref") or q.get("lead") or "")[:120],
         })
     # 302 + no-store: o navegador não guarda o redirecionamento, então todo clique passa por aqui

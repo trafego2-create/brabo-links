@@ -86,6 +86,96 @@
     abrir('m-qr');
   };
 
+  // ── UTMs (5 campos do Active + montador da utm_campaign) ────────────────
+  const UTMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+  const PARTES = ['plataforma', 'objetivo', 'etapa', 'temperatura', 'tipo', 'lancamento', 'data'];
+  const RE_LANC = /\b([A-Z]{2,4}-[A-Z]{3}-\d{2})\b/i;
+  const hojeCurto = () => { const d = new Date(); return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`; };
+
+  function utmsDe(f) { const o = {}; UTMS.forEach((k) => (o[k] = f[k].value.trim())); return o; }
+
+  function urlFinal(destino, utms) {
+    let u;
+    try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(destino) ? destino : 'https://' + destino); } catch (e) { return null; }
+    UTMS.forEach((k) => { if (utms[k]) u.searchParams.set(k, utms[k]); });
+    return u.toString();
+  }
+
+  function atualizarUtm(f) {
+    const box = $('.utm-box', f);
+    if (!box) return;
+    const utms = utmsDe(f);
+    const n = UTMS.filter((k) => utms[k]).length;
+    const cnt = $('.utm-count', box);
+    cnt.style.display = n ? '' : 'none';
+    cnt.textContent = `${n} preenchida${n === 1 ? '' : 's'}`;
+    const code = $('.utm-final code', box);
+    const dest = f.destino.value.trim();
+    const fin = dest ? urlFinal(dest, utms) : null;
+    if (!fin) { code.textContent = 'Cole o destino para ver o link final.'; return; }
+    // mostra legível (sem %5B, +…); o link de verdade sai codificado do jeito certo
+    const u = new URL(fin);
+    const resto = [], minhas = [];
+    u.searchParams.forEach((v, k) => (UTMS.includes(k) && utms[k] ? minhas : resto).push(`${esc(k)}=${esc(v)}`));
+    const q = [...resto, ...minhas.map((x) => `<b>${x}</b>`)].join('&amp;');
+    code.innerHTML = esc(u.origin + u.pathname) + (q ? '?' + q : '') + esc(u.hash);
+  }
+
+  // Destino colado já com UTMs: elas vão para os campos (sem sobrescrever o que já foi digitado)
+  function puxarUtmsDoDestino(f) {
+    let u;
+    try { u = new URL(f.destino.value.trim()); } catch (e) { return; }
+    const achou = UTMS.filter((k) => u.searchParams.has(k));
+    if (!achou.length) return;
+    achou.forEach((k) => { if (!f[k].value) f[k].value = u.searchParams.get(k); u.searchParams.delete(k); });
+    f.destino.value = u.toString();
+    $('.utm-box', f).open = true;
+    toast('As UTMs do endereço foram para os campos abaixo.');
+  }
+
+  function montarCampanha(f) {
+    const b = $('.utm-builder', f);
+    const partes = PARTES.map((p) => $(`[data-b=${p}]`, b).value.trim());
+    f.utm_campaign.value = partes.filter(Boolean).map((p) => `[${p}]`).join('');
+    atualizarUtm(f);
+  }
+
+  function initUtm(f) {
+    const box = $('.utm-box', f);
+    if (!box) return;
+    const b = $('.utm-builder', f);
+    $('[data-montar]', f).addEventListener('click', () => {
+      const abrindo = !b.classList.contains('on');
+      b.classList.toggle('on', abrindo);
+      if (!abrindo) return;
+      // abre já com o que estiver na utm_campaign (formato de colchetes) ou com padrões
+      const atuais = (f.utm_campaign.value.match(/\[([^\]]*)\]/g) || []).map((x) => x.slice(1, -1));
+      if (atuais.length === PARTES.length) PARTES.forEach((p, i) => ($(`[data-b=${p}]`, b).value = atuais[i]));
+      if (!$('[data-b=lancamento]', b).value && f.campanha.value) $('[data-b=lancamento]', b).value = f.campanha.value.toUpperCase();
+      if (!$('[data-b=data]', b).value) $('[data-b=data]', b).value = hojeCurto();
+      if (!$('[data-b=plataforma]', b).value) $('[data-b=plataforma]', b).focus();
+    });
+    $$('[data-b]', b).forEach((i) => i.addEventListener('input', () => montarCampanha(f)));
+    UTMS.forEach((k) => f[k].addEventListener('input', () => {
+      if (k === 'utm_campaign' && !f.campanha.value) {
+        const m = f.utm_campaign.value.match(RE_LANC);
+        if (m) f.campanha.value = m[1].toUpperCase();
+      }
+      atualizarUtm(f);
+    }));
+    f.destino.addEventListener('change', () => { puxarUtmsDoDestino(f); atualizarUtm(f); });
+    f.destino.addEventListener('input', () => atualizarUtm(f));
+    atualizarUtm(f);
+  }
+
+  function preencherUtm(f, l) {
+    UTMS.forEach((k) => (f[k].value = l[k] || ''));
+    $$('.utm-builder [data-b]', f).forEach((i) => (i.value = ''));
+    $('.utm-builder', f).classList.remove('on');
+    $('.utm-box', f).open = UTMS.some((k) => l[k]);
+    atualizarUtm(f);
+  }
+
   // ── Editar ──────────────────────────────────────────────────────────────
   let editando = null;
   window.blEditar = function (el) {
@@ -97,6 +187,8 @@
     f.titulo.value = editando.titulo;
     f.categoria.value = editando.categoria;
     f.campanha.value = editando.campanha;
+    if (!f.dataset.utmInit) { initUtm(f); f.dataset.utmInit = '1'; }
+    preencherUtm(f, editando);
     $('#warn-slug').classList.remove('on');
     $('[data-err=slug]', f).textContent = '';
     $('#btn-arquivar').innerHTML = editando.ativo
@@ -115,7 +207,7 @@
     try {
       await api('PATCH', `/api/links/${f.id.value}`, {
         destino: f.destino.value, slug: f.slug.value, titulo: f.titulo.value,
-        categoria: f.categoria.value, campanha: f.campanha.value,
+        categoria: f.categoria.value, campanha: f.campanha.value, ...utmsDe(f),
       });
       toast('Link salvo.');
       setTimeout(() => location.reload(), 400);
@@ -227,6 +319,7 @@
     }, 250);
 
     destino.addEventListener('input', () => { $('[data-err=destino]').textContent = ''; destino.classList.remove('bad'); sugerir(); });
+    initUtm(form);
     titulo.addEventListener('input', sugerir);
     slug.addEventListener('input', () => {
       const v = slug.value.toLowerCase().replace(/\s+/g, '-').normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -253,16 +346,19 @@
     try {
       const l = await api('POST', '/api/links', {
         destino: f.destino.value, slug, titulo: f.titulo.value, categoria: f.categoria.value, campanha: f.campanha.value,
+        ...utmsDe(f),
       });
       await copiar(l.curto, true);
       $('#c-ok-url').textContent = l.curto;
       $('#c-ok-stats').href = `/app/links/${l.id}`;
       $('#c-ok-qr').onclick = () => blQR(l);
       $('#c-ok').classList.add('on');
-      const linha = linhaNova({ id: l.id, slug: l.slug, destino: l.destino, titulo: l.titulo, categoria: l.categoria, campanha: l.campanha, ativo: true });
+      const linha = linhaNova({ id: l.id, slug: l.slug, destino: l.destino, titulo: l.titulo, categoria: l.categoria, campanha: l.campanha, ativo: true,
+        ...Object.fromEntries(UTMS.map((k) => [k, l[k]])) });
       $('#lista').prepend(linha);
       blFiltrar();
       f.destino.value = ''; f.slug.value = ''; f.titulo.value = ''; f.categoria.value = '';
+      preencherUtm(f, {});
       f.slug.placeholder = 'aula-inss';
       f.categoria.options[0].textContent = 'Detectar sozinho';
       $('#c-slug-msg').className = '';

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import row, modais with context %}
+{% from "_macros.html" import row, modais, utm_campos with context %}
 {% block title %}Links{% endblock %}
 {% block content %}
 {% set ativos = d.links | selectattr('ativo') | list %}
@@ -26,6 +26,7 @@
         <small id="c-slug-msg">Letras minúsculas, números e hífen. Ex.: <b>ebook-tjsp</b></small>
       </div>
     </div>
+    <div style="margin-top:14px">{{ utm_campos("c") }}</div>
     <div class="create-more">
       <label class="field"><span>Título <em style="text-transform:none;font-weight:500;font-style:normal">(opcional, só pra achar depois)</em></span><input class="input" name="titulo" id="c-titulo" placeholder="Ex.: Aula 1 — Semana do INSS"></label>
       <label class="field"><span>Tipo</span><select class="input" name="categoria" id="c-cat">
@@ -104,6 +105,6 @@
   </div>
   <div class="empty" id="vazio" style="display:none"><i class="ti ti-link-off"></i><span id="vazio-txt">Nenhum link encontrado com esses filtros.</span></div>
 </div>
-{{ modais(campanhas) }}
+{{ modais(campanhas, usadas) }}
 {% endblock %}
 {% block scripts %}<script>blInitPainel({{ (d.links | length) }});</script>{% endblock %}

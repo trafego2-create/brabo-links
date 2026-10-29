@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, insert, select, text, update
+from sqlalchemy import and_, func, insert, inspect, select, text, update
 
 from . import config, security
 from .db import SCHEMA, clicks, links, metadata, users
@@ -24,6 +24,8 @@ CATEGORIAS = {
     "pagina": ("Outro", "ti-link"),
 }
 PAPEIS = {"admin": "Admin", "editor": "Editor", "leitura": "Só leitura"}
+UTMS = ("utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term")
+_CACHE_COLS = ("id", "slug", "destino", "ativo", *UTMS)
 
 # Caminhos do próprio painel — não podem virar link curto
 RESERVADOS = {
@@ -110,6 +112,7 @@ class Store:
             if self.pg:
                 c.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}"))
         metadata.create_all(self.engine)
+        self._colunas_novas()
         if self.pg:
             # RLS ligado sem policy = chave anon/authenticated do Supabase não lê nada.
             # O app conecta como dono das tabelas, que ignora RLS.
@@ -129,10 +132,25 @@ class Store:
                 log.info("admin inicial criado: %s", config.ADMIN_EMAIL)
         self.recarregar_cache()
 
+    def _colunas_novas(self) -> None:
+        """create_all não altera tabela existente: acrescenta as colunas que faltarem."""
+        insp = inspect(self.engine)
+        esquema = SCHEMA if self.pg else None
+        for tabela in (links, clicks):
+            existentes = {c["name"] for c in insp.get_columns(tabela.name, schema=esquema)}
+            for col in tabela.columns:
+                if col.name in existentes:
+                    continue
+                nome = f"{SCHEMA}.{tabela.name}" if self.pg else tabela.name
+                tipo = col.type.compile(self.engine.dialect)
+                with self.engine.begin() as c:
+                    c.execute(text(f"ALTER TABLE {nome} ADD COLUMN {col.name} {tipo} NOT NULL DEFAULT ''"))
+                log.info("coluna criada: %s.%s", tabela.name, col.name)
+
     # ── Cache de redirecionamento ──
     def recarregar_cache(self) -> None:
         with self.engine.connect() as c:
-            rows = c.execute(select(links.c.id, links.c.slug, links.c.destino, links.c.ativo)).mappings().all()
+            rows = c.execute(select(*[links.c[k] for k in _CACHE_COLS])).mappings().all()
         novo = {r["slug"]: dict(r) for r in rows}
         with self._cache_lock:
             self._cache = novo
@@ -144,7 +162,7 @@ class Store:
             return hit
         # criado por outra instância desde o último refresh
         with self.engine.connect() as c:
-            r = c.execute(select(links.c.id, links.c.slug, links.c.destino, links.c.ativo)
+            r = c.execute(select(*[links.c[k] for k in _CACHE_COLS])
                           .where(links.c.slug == slug)).mappings().first()
         if r:
             with self._cache_lock:
@@ -156,7 +174,7 @@ class Store:
         with self._cache_lock:
             for k in [k for k, v in self._cache.items() if v["id"] == row["id"]]:
                 del self._cache[k]
-            self._cache[row["slug"]] = {k: row[k] for k in ("id", "slug", "destino", "ativo")}
+            self._cache[row["slug"]] = {k: row[k] for k in _CACHE_COLS}
 
     # ── Cliques ──
     def registrar(self, clique: dict) -> None:
@@ -220,11 +238,12 @@ class Store:
         with self.engine.connect() as c:
             return c.execute(q).first() is not None
 
-    def criar_link(self, slug, destino, titulo, categoria, campanha, autor) -> dict:
+    def criar_link(self, slug, destino, titulo, categoria, campanha, autor, **utms) -> dict:
         t = agora()
         with self.engine.begin() as c:
             row = c.execute(insert(links).values(
                 slug=slug, destino=destino, titulo=titulo, categoria=categoria, campanha=campanha,
+                **{k: utms.get(k, "") for k in UTMS},
                 ativo=True, criado_por=autor, criado_em=t, atualizado_em=t,
             ).returning(*links.c)).mappings().one()
         row = dict(row)
@@ -239,6 +258,14 @@ class Store:
         row = dict(row)
         self._cache_put(row)
         return row
+
+    def utms_usadas(self) -> dict[str, list[str]]:
+        out = {}
+        with self.engine.connect() as c:
+            for k in UTMS:
+                out[k] = [r[0] for r in c.execute(
+                    select(links.c[k]).where(links.c[k] != "").distinct().order_by(links.c[k]).limit(200))]
+        return out
 
     def campanhas(self) -> list[str]:
         with self.engine.connect() as c:
@@ -313,6 +340,9 @@ class Store:
             out["pais"] = [x for x in top(clicks.c.pais) if x["nome"] != "—"]
             out["utm_source"] = [x for x in top(clicks.c.utm_source) if x["nome"] != "—"]
             out["utm_campaign"] = [x for x in top(clicks.c.utm_campaign) if x["nome"] != "—"]
+            out["utm_medium"] = [x for x in top(clicks.c.utm_medium) if x["nome"] != "—"]
+            out["utm_content"] = [x for x in top(clicks.c.utm_content) if x["nome"] != "—"]
+            out["utm_term"] = [x for x in top(clicks.c.utm_term) if x["nome"] != "—"]
             out["ref"] = [x for x in top(clicks.c.ref, 50) if x["nome"] != "—"]
             out["sites"] = [x for x in top(clicks.c.referer_host) if x["nome"] != "—"]
             primeiro = c.execute(select(func.min(clicks.c.dia)).where(and_(clicks.c.link_id == link_id))).scalar()
@@ -330,7 +360,7 @@ class Store:
     def exportar_cliques(self, link_id: int):
         cols = [clicks.c.ts, clicks.c.origem, clicks.c.referer_host, clicks.c.dispositivo, clicks.c.sistema,
                 clicks.c.navegador, clicks.c.pais, clicks.c.utm_source, clicks.c.utm_medium,
-                clicks.c.utm_campaign, clicks.c.utm_content, clicks.c.ref, clicks.c.visitante, clicks.c.bot]
+                clicks.c.utm_campaign, clicks.c.utm_content, clicks.c.utm_term, clicks.c.ref, clicks.c.visitante, clicks.c.bot]
         with self.engine.connect() as c:
             res = c.execute(select(*cols).where(clicks.c.link_id == link_id).order_by(clicks.c.ts.desc()))
             yield [col.name for col in cols]

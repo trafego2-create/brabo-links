@@ -132,3 +132,36 @@ def test_tracking_basico():
     assert tracking.origem("", "https://m.youtube.com/watch", "")[0] == "YouTube"
     assert tracking.origem("", "https://www.google.com.br/", "")[0] == "Google"
     assert tracking.origem("", "", "wpp")[0] == "WhatsApp"
+
+
+def test_utms_fixas_no_padrao_do_active(c):
+    camp = "[MA][cadastro][captação][quente][principal][PES-NOV-26][26.10.26]"
+    r = c.post("/api/links", json={
+        "destino": "https://braboconcursos.com.br/tj?x=1", "slug": "tj-bio",
+        "utm_source": "ig", "utm_medium": "social", "utm_campaign": camp,
+        "utm_content": "link_in_bio", "utm_term": "AD393 - Carrossel Edital aberto - PES-NOV-26"})
+    assert r.status_code == 200, r.text
+    assert r.json()["final"].startswith("https://braboconcursos.com.br/tj?x=1&utm_source=ig&utm_medium=social&utm_campaign=")
+
+    loc = c.get("/tj-bio", follow_redirects=False, headers={"user-agent": CHROME_ANDROID}).headers["location"]
+    from urllib.parse import parse_qs, urlsplit
+    q = parse_qs(urlsplit(loc).query)
+    assert q["utm_campaign"] == [camp] and q["utm_term"] == ["AD393 - Carrossel Edital aberto - PES-NOV-26"]
+    assert q["x"] == ["1"]
+
+    # UTM no clique vence a fixa; as outras fixas continuam
+    loc = c.get("/tj-bio?utm_source=whatsapp", follow_redirects=False, headers={"user-agent": CHROME_ANDROID}).headers["location"]
+    q = parse_qs(urlsplit(loc).query)
+    assert q["utm_source"] == ["whatsapp"] and q["utm_medium"] == ["social"]
+
+    main.store.gravar_cliques()
+    lid = r.json()["id"]
+    st = main.store.estatisticas(lid, 7)
+    assert {x["nome"] for x in st["utm_source"]} == {"ig", "whatsapp"}
+    assert st["utm_term"][0]["n"] == 2
+    assert "AD393" in c.get(f"/app/links/{lid}").text
+
+
+def test_utm_source_sem_medium(c):
+    r = c.post("/api/links", json={"destino": "https://a.com", "slug": "so-source", "utm_source": "ig"})
+    assert r.status_code == 400 and "utm_medium" in r.json()["erro"]

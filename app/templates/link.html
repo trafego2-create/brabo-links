@@ -27,12 +27,14 @@
       <div style="min-width:0">
         <h1>{{ link.titulo }} {% if link.campanha %}<span class="tag camp">{{ link.campanha }}</span>{% endif %}{% if not link.ativo %} <span class="tag off">arquivado</span>{% endif %}</h1>
         <a class="short" href="{{ curto }}" target="_blank" rel="noopener">{{ HOST_CURTO }}/{{ link.slug }}</a>
-        <div class="dest"><i class="ti ti-corner-down-right"></i> <a href="{{ link.destino }}" target="_blank" rel="noopener">{{ link.destino }}</a></div>
+        <div class="dest"><i class="ti ti-corner-down-right"></i> <a href="{{ final }}" target="_blank" rel="noopener">{{ link.destino }}</a></div>
+        {% set fixas = [('source', link.utm_source), ('medium', link.utm_medium), ('campaign', link.utm_campaign), ('content', link.utm_content), ('term', link.utm_term)] | selectattr(1) | list %}
+        {% if fixas %}<div class="utm-tags">{% for k, v in fixas %}<span class="tag" title="utm_{{ k }}"><b>{{ k }}</b> {{ v }}</span>{% endfor %}</div>{% endif %}
       </div>
     </div>
   </div>
   <div class="hdr-actions" id="link-acts"
-       data-link='{{ {"id": link.id, "slug": link.slug, "destino": link.destino, "titulo": link.titulo, "categoria": link.categoria, "campanha": link.campanha, "ativo": link.ativo} | tojson | forceescape }}'>
+       data-link='{{ link_dict(link) | tojson | forceescape }}'>
     <button class="btn btn-primary" onclick="blCopiar('{{ curto }}')"><i class="ti ti-copy"></i> Copiar</button>
     <button class="btn" onclick="blQR(this)"><i class="ti ti-qrcode"></i> QR Code</button>
     {% if u.papel != 'leitura' %}<button class="btn" onclick="blEditar(this)"><i class="ti ti-pencil"></i> Editar</button>{% endif %}
@@ -90,13 +92,15 @@
 
   <div class="grid2">
     <div class="card">
-      <h3><i class="ti ti-tag"></i> UTMs</h3>
-      {% if st.utm_source or st.utm_campaign %}
-        {% if st.utm_source %}<div class="note" style="margin-bottom:6px"><b>utm_source</b></div>{{ barras(st.utm_source, st.total) }}{% endif %}
-        {% if st.utm_campaign %}<div class="note" style="margin:14px 0 6px"><b>utm_campaign</b></div>{{ barras(st.utm_campaign, st.total) }}{% endif %}
+      <h3><i class="ti ti-tag"></i> UTMs dos cliques</h3>
+      {% set blocos = [('utm_source', st.utm_source), ('utm_medium', st.utm_medium), ('utm_campaign', st.utm_campaign), ('utm_content', st.utm_content), ('utm_term', st.utm_term)] | selectattr(1) | list %}
+      {% if blocos %}
+        {% for nome, itens in blocos %}
+        <div class="note" style="margin:{{ '0' if loop.first else '14px' }} 0 6px"><b>{{ nome }}</b></div>{{ barras(itens, st.total) }}
+        {% endfor %}
       {% else %}
-        <div class="note">Quer separar o mesmo link por canal? Acrescente UTMs no fim do link curto — elas aparecem aqui e seguem para o destino:<br>
-          <span class="code">{{ HOST_CURTO }}/{{ link.slug }}?utm_source=instagram</span></div>
+        <div class="note">Nenhum clique com UTM no período. Dá pra fixar UTMs no link (botão <b>Editar</b>) ou acrescentar no fim do link curto — elas seguem para o destino e chegam no Active:<br>
+          <span class="code">{{ HOST_CURTO }}/{{ link.slug }}?utm_source=ig&amp;utm_medium=social</span></div>
       {% endif %}
     </div>
     <div class="card">
@@ -113,7 +117,7 @@
     </div>
   </div>
 </div>
-{{ modais(campanhas) }}
+{{ modais(campanhas, usadas) }}
 {% endblock %}
 {% block scripts %}
 <script>

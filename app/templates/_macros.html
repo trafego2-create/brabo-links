@@ -15,7 +15,7 @@
      data-ativo="{{ 1 if l.ativo else 0 }}" data-c7="{{ l.cliques_7d }}" data-ct="{{ l.cliques_total }}"
      data-criado="{{ l.criado_em.isoformat() if l.criado_em.isoformat is defined else l.criado_em }}"
      data-q="{{ (l.titulo ~ ' ' ~ l.slug ~ ' ' ~ l.destino ~ ' ' ~ l.campanha) | lower }}"
-     data-link='{{ {"id": l.id, "slug": l.slug, "destino": l.destino, "titulo": l.titulo, "categoria": l.categoria, "campanha": l.campanha, "ativo": l.ativo} | tojson | forceescape }}'>
+     data-link='{{ link_dict(l) | tojson | forceescape }}'>
   <div class="cat-ico cat-{{ l.categoria }}" title="{{ CATEGORIAS[l.categoria][0] }}"><i class="ti {{ CATEGORIAS[l.categoria][1] }}"></i></div>
   <div class="lmain">
     <a class="ltitle" href="/app/links/{{ l.id }}">{{ l.titulo }}
@@ -38,7 +38,52 @@
 </div>
 {%- endmacro %}
 
-{% macro modais(campanhas) %}
+{% macro utm_campos(pref) %}
+<details class="utm-box" id="{{ pref }}-utm">
+  <summary><i class="ti ti-tag"></i> UTMs <span class="note">padrão do Active Campaign · opcional</span><span class="tag camp utm-count" style="display:none"></span><i class="ti ti-chevron-down chev"></i></summary>
+  <div class="utm-body">
+    <div class="note">Vão grudadas no destino toda vez que alguém clicar, e é assim que o lead chega no Active com origem certa. Se alguém abrir o link curto com outra UTM no fim (ex.: <span class="code">?utm_source=whatsapp</span>), a do clique vale.</div>
+    <div class="row2">
+      <label class="field"><span>utm_source <em>canal</em></span><input class="input" name="utm_source" list="dl-utm_source" placeholder="ig, facebook, google…" autocomplete="off"></label>
+      <label class="field"><span>utm_medium <em>tipo de tráfego</em></span><input class="input" name="utm_medium" list="dl-utm_medium" placeholder="social, paid_social, cpc…" autocomplete="off"></label>
+    </div>
+    <div class="field"><span>utm_campaign <em>campanha</em></span>
+      <div class="utm-camp"><input class="input" name="utm_campaign" placeholder="[MA][cadastro][captação][quente][principal][PES-NOV-26][26.10.26]" autocomplete="off" list="dl-utm_campaign">
+        <button type="button" class="btn btn-sm" data-montar><i class="ti ti-brackets"></i> Montar</button></div>
+      <div class="utm-builder">
+        {% for nome, ph, dl in [("plataforma","MA","dl-b-plat"),("objetivo","cadastro","dl-b-obj"),("etapa","captação","dl-b-etapa"),("temperatura","quente","dl-b-temp"),("tipo","principal","dl-b-tipo"),("lancamento","PES-NOV-26","dl-campanhas"),("data","26.10.26","")] %}
+        <label class="field"><span>{{ "lançamento" if nome == "lancamento" else nome }}</span><input class="input" data-b="{{ nome }}" placeholder="{{ ph }}" {% if dl %}list="{{ dl }}"{% endif %} autocomplete="off"></label>
+        {% endfor %}
+        <small class="note" style="grid-column:1/-1">Cada pedaço vira um <b>[colchete]</b>, na ordem do Active. Deixe vazio o que não se aplica.</small>
+      </div>
+    </div>
+    <div class="row2">
+      <label class="field"><span>utm_content <em>público / posição</em></span><input class="input" name="utm_content" list="dl-utm_content" placeholder="link_in_bio" autocomplete="off"></label>
+      <label class="field"><span>utm_term <em>criativo (ADxxx)</em></span><input class="input" name="utm_term" list="dl-utm_term" placeholder="AD393 - Carrossel Edital aberto - PES-NOV-26" autocomplete="off"></label>
+    </div>
+    <div class="utm-final"><span>Destino final</span><code></code></div>
+  </div>
+</details>
+{% endmacro %}
+
+{% macro utm_datalists(usadas) %}
+{% set base = {
+  "utm_source": ["ig", "instagram", "facebook", "google", "tiktok"],
+  "utm_medium": ["social", "organic_chat", "paid_social", "paid_social_dm", "cpc", "paid"],
+  "utm_content": ["link_in_bio", "unichat_comentario"],
+  "utm_campaign": [], "utm_term": []} %}
+{% for k, vals in base.items() %}
+<datalist id="dl-{{ k }}">{% for v in (vals + ((usadas or {}).get(k) or [])) | unique %}<option value="{{ v }}">{% endfor %}</datalist>
+{% endfor %}
+<datalist id="dl-b-plat"><option value="MA">Meta Ads</option><option value="GA">Google Ads</option><option value="TK">TikTok</option></datalist>
+<datalist id="dl-b-obj"><option value="cadastro"><option value="compra"><option value="pré-qualificação"></datalist>
+<datalist id="dl-b-etapa"><option value="captação"><option value="ebook"><option value="vendas"><option value="carrinho"></datalist>
+<datalist id="dl-b-temp"><option value="quente"><option value="frio"><option value="específico"><option value="super quente"></datalist>
+<datalist id="dl-b-tipo"><option value="principal"><option value="pós-edital"><option value="reels"><option value="imagem"><option value="carrossel"><option value="potencial"></datalist>
+{% endmacro %}
+
+{% macro modais(campanhas, usadas=None) %}
+{{ utm_datalists(usadas) }}
 <datalist id="dl-campanhas">{% for c in campanhas %}<option value="{{ c }}">{% endfor %}</datalist>
 
 <div class="modal-bg" id="m-editar" onclick="if(event.target===this)blFechar(this)">
@@ -58,6 +103,7 @@
         <label class="field"><span>Tipo</span><select class="input" name="categoria">{% for k, v in CATEGORIAS.items() %}<option value="{{ k }}">{{ v[0] }}</option>{% endfor %}</select></label>
         <label class="field"><span>Campanha / lançamento</span><input class="input" name="campanha" list="dl-campanhas" placeholder="Ex.: PES-SET-26"></label>
       </div>
+      {{ utm_campos("e") }}
     </div>
     <div class="modal-f">
       <button type="button" class="btn btn-ghost btn-danger" id="btn-arquivar" onclick="blArquivar()" style="margin-right:auto"></button>
