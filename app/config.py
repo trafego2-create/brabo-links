@@ -49,7 +49,7 @@ FLUSH_SECONDS = float(os.getenv("FLUSH_SECONDS", "2"))
 CACHE_REFRESH_SECONDS = float(os.getenv("CACHE_REFRESH_SECONDS", "10"))
 CACHE_FULL_SECONDS = float(os.getenv("CACHE_FULL_SECONDS", "600"))
 
-# Painel no Brabo Analytics (ex.: https://analytics.exemplo.com). Preenchido, o painel
-# daqui (/app, /login) só redireciona pra lá e este app fica só com o redirecionamento
-# dos links curtos. Vazio, o painel próprio continua funcionando.
-PAINEL_URL = os.getenv("PAINEL_URL", "").strip().rstrip("/")
+# Painel no Brabo Analytics (menu Links). Preenchido, o painel daqui (/app, /login) só
+# redireciona pra lá e este app fica só com o redirecionamento dos links curtos.
+# PAINEL_URL= (vazio) reativa o painel próprio. Padrão: o Analytics no EasyPanel antigo.
+PAINEL_URL = os.getenv("PAINEL_URL", "https://typebot-analytics-brabo.e4wfok.easypanel.host").strip().rstrip("/")

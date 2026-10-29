@@ -9,6 +9,7 @@ os.environ["PUBLIC_BASE"] = "https://go.exemplo.com"
 os.environ["ADMIN_EMAIL"] = "admin@exemplo.com"
 os.environ["ADMIN_PASSWORD"] = "senha-forte-123"
 os.environ["SESSION_SECRET"] = "x" * 64
+os.environ["PAINEL_URL"] = ""  # testa o painel próprio; o redirecionamento tem teste à parte
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
