@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>{% block title %}Links{% endblock %} — Brabo Links</title>
+  <link rel="icon" type="image/png" href="/static/img/favicon-brabo-concursos.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="/static/css/app.css?v=1">
+  <script>
+    try { if (localStorage.getItem('bl-tema') === 'brabo') document.documentElement.setAttribute('data-bs-theme', 'brabo'); } catch (e) {}
+  </script>
+</head>
+<body>
+<div id="bs-mobile-topbar">
+  <button onclick="document.body.classList.toggle('menu-on')" aria-label="Abrir menu"><i class="ti ti-menu-2"></i></button>
+  <a href="/app"><img src="/static/img/logo-brabo-concursos-white.svg" alt="Brabo Links"></a>
+  <span style="width:44px"></span>
+</div>
+<div id="bs-drawer-overlay" onclick="document.body.classList.remove('menu-on')"></div>
+
+<aside id="bs-drawer">
+  <div class="bs-brand">
+    <a href="/app">
+      <img src="/static/img/logo-brabo-concursos-white.svg" alt="Brabo Concursos">
+      <span class="bs-brand-name">Brabo Links</span>
+    </a>
+  </div>
+  <nav class="bs-mode-rail">
+    <div class="bs-nav-group">Encurtador</div>
+    <a class="bs-mode-btn {% if nav == 'links' %}active{% endif %}" href="/app"><i class="ti ti-link"></i> Links</a>
+    {% if u.papel == 'admin' %}
+    <div class="bs-nav-group" style="margin-top:8px">Sistema</div>
+    <a class="bs-mode-btn {% if nav == 'usuarios' %}active{% endif %}" href="/app/usuarios"><i class="ti ti-users"></i> Usuários</a>
+    {% endif %}
+    <button type="button" class="bs-mode-btn" onclick="blTema()"><i class="ti ti-palette"></i> <span id="bl-tema-lbl">Tema escuro</span></button>
+  </nav>
+  <div class="bs-spacer"></div>
+  <div class="bs-acct">
+    <div class="bs-acct-avatar">{{ (u.nome or u.email)[0] | upper }}</div>
+    <div class="bs-acct-info">
+      <div class="bs-acct-email" title="{{ u.email }}">{{ u.nome or u.email }}</div>
+      <div class="bs-acct-role">{{ PAPEIS[u.papel] }}</div>
+    </div>
+    <button type="button" title="Trocar minha senha" onclick="blAbrir('m-senha')"><i class="ti ti-key"></i></button>
+    <a href="/logout" title="Sair"><i class="ti ti-logout"></i></a>
+  </div>
+</aside>
+
+<main id="bs-main">
+  {% block content %}{% endblock %}
+</main>
+
+<div class="modal-bg" id="m-senha" onclick="if(event.target===this)blFechar(this)">
+  <form class="modal" onsubmit="blTrocarSenha(event)">
+    <div class="modal-h"><h2>Trocar minha senha</h2><button type="button" class="icon-btn" onclick="blFechar(this)"><i class="ti ti-x"></i></button></div>
+    <div class="modal-b">
+      <label class="field"><span>Senha atual</span><input class="input" type="password" name="atual" required autocomplete="current-password"></label>
+      <label class="field"><span>Nova senha</span><input class="input" type="password" name="nova" required minlength="8" autocomplete="new-password"><small>Mínimo de 8 caracteres.</small></label>
+    </div>
+    <div class="modal-f"><button type="button" class="btn" onclick="blFechar(this)">Cancelar</button><button class="btn btn-primary">Salvar</button></div>
+  </form>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<script>window.BL = { csrf: {{ u.csrf | tojson }}, base: {{ BASE_CURTA | tojson }}, papel: {{ u.papel | tojson }} };</script>
+<script src="/static/js/app.js?v=1"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Usuários{% endblock %}
+{% block content %}
+<div class="hdr">
+  <div class="hdr-title"><h1>Usuários</h1><p>Quem pode entrar no painel. <b>Editor</b> cria e edita links; <b>Só leitura</b> vê as estatísticas; <b>Admin</b> também gerencia usuários.</p></div>
+  <div class="hdr-actions"><button class="btn btn-primary" onclick="blNovoUsuario()"><i class="ti ti-user-plus"></i> Novo usuário</button></div>
+</div>
+<div class="content">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Situação</th><th>Desde</th><th></th></tr></thead>
+      <tbody>
+      {% for x in usuarios %}
+      <tr data-user='{{ {"id": x.id, "nome": x.nome, "email": x.email, "papel": x.papel, "ativo": x.ativo} | tojson | forceescape }}'>
+        <td><b>{{ x.nome or '—' }}</b></td>
+        <td>{{ x.email }}</td>
+        <td>{{ PAPEIS[x.papel] }}</td>
+        <td>{% if x.ativo %}<span class="tag camp" style="background:var(--bs-success-bg);color:var(--bs-success)">ativo</span>{% else %}<span class="tag off">bloqueado</span>{% endif %}</td>
+        <td>{{ x.criado_em | dt }}</td>
+        <td style="text-align:right"><button class="icon-btn" title="Editar" onclick="blEditarUsuario(this)"><i class="ti ti-pencil"></i></button></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-bg" id="m-user" onclick="if(event.target===this)blFechar(this)">
+  <form class="modal" onsubmit="blSalvarUsuario(event)" autocomplete="off">
+    <div class="modal-h"><h2 id="mu-titulo">Novo usuário</h2><button type="button" class="icon-btn" onclick="blFechar(this)"><i class="ti ti-x"></i></button></div>
+    <div class="modal-b">
+      <input type="hidden" name="id">
+      <label class="field"><span>Nome</span><input class="input" name="nome" required></label>
+      <label class="field"><span>E-mail</span><input class="input" type="email" name="email" required></label>
+      <div class="row2">
+        <label class="field"><span>Papel</span><select class="input" name="papel">{% for k, v in PAPEIS.items() %}<option value="{{ k }}" {{ 'selected' if k == 'editor' }}>{{ v }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Situação</span><select class="input" name="ativo"><option value="1">Ativo</option><option value="0">Bloqueado</option></select></label>
+      </div>
+      <label class="field"><span id="mu-senha-lbl">Senha</span><input class="input" type="text" name="senha" minlength="8" autocomplete="new-password"><small id="mu-senha-help">Mínimo de 8 caracteres. Passe para a pessoa e peça para trocar no primeiro acesso (ícone de chave no menu).</small></label>
+    </div>
+    <div class="modal-f"><button type="button" class="btn" onclick="blFechar(this)">Cancelar</button><button class="btn btn-primary">Salvar</button></div>
+  </form>
+</div>
+{% endblock %}

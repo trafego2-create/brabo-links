@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% from "_macros.html" import row, modais with context %}
+{% block title %}Links{% endblock %}
+{% block content %}
+{% set ativos = d.links | selectattr('ativo') | list %}
+{% set top = (ativos | sort(attribute='cliques_7d', reverse=true) | first) if ativos else None %}
+<div class="hdr">
+  <div class="hdr-title">
+    <h1>Links</h1>
+    <p>Encurte, compartilhe e veja quem clicou. Os números já descontam as pré-visualizações automáticas do WhatsApp, Instagram e afins.</p>
+  </div>
+</div>
+
+<div class="content">
+  {% if u.papel != 'leitura' %}
+  <form class="create-card" id="f-criar" onsubmit="blCriar(event)" autocomplete="off">
+    <h2><i class="ti ti-circle-plus"></i> Criar link</h2>
+    <p>Cole o endereço completo (vídeo do YouTube, página de vendas, e-book…) e escolha um nome curto e fácil de lembrar.</p>
+    <div class="create-grid">
+      <label class="field"><span>Para onde o link leva</span>
+        <input class="input" name="destino" id="c-destino" placeholder="https://www.youtube.com/watch?v=…" required>
+        <small class="err" data-err="destino"></small>
+      </label>
+      <div class="field"><span>Nome do link</span>
+        <div class="slug-input" id="c-slug-box"><span class="pre">{{ HOST_CURTO }}/</span><input name="slug" id="c-slug" placeholder="aula-inss" required spellcheck="false"></div>
+        <small id="c-slug-msg">Letras minúsculas, números e hífen. Ex.: <b>ebook-tjsp</b></small>
+      </div>
+    </div>
+    <div class="create-more">
+      <label class="field"><span>Título <em style="text-transform:none;font-weight:500;font-style:normal">(opcional, só pra achar depois)</em></span><input class="input" name="titulo" id="c-titulo" placeholder="Ex.: Aula 1 — Semana do INSS"></label>
+      <label class="field"><span>Tipo</span><select class="input" name="categoria" id="c-cat">
+        <option value="">Detectar sozinho</option>
+        {% for k, v in CATEGORIAS.items() %}<option value="{{ k }}">{{ v[0] }}</option>{% endfor %}
+      </select></label>
+      <label class="field"><span>Campanha / lançamento</span><input class="input" name="campanha" list="dl-campanhas" placeholder="Ex.: PES-SET-26"></label>
+      <button class="btn btn-primary" id="c-btn"><i class="ti ti-scissors"></i> Encurtar</button>
+    </div>
+    <div class="created" id="c-ok">
+      <i class="ti ti-circle-check ok"></i>
+      <span class="url" id="c-ok-url"></span>
+      <button type="button" class="btn btn-sm" onclick="blCopiar(document.getElementById('c-ok-url').textContent)"><i class="ti ti-copy"></i> Copiar</button>
+      <button type="button" class="btn btn-sm" id="c-ok-qr"><i class="ti ti-qrcode"></i> QR Code</button>
+      <a class="btn btn-sm" id="c-ok-stats"><i class="ti ti-chart-bar"></i> Estatísticas</a>
+      <div class="hint">Já está copiado. É só colar onde for usar.</div>
+    </div>
+  </form>
+  {% endif %}
+
+  <div class="tp-kpi-grid">
+    <div class="tp-kpi">
+      <div class="tp-kpi-top"><div class="tp-icon"><i class="ti ti-click"></i></div></div>
+      <div class="tp-value">{{ d.hoje | num }}</div>
+      <div class="tp-label">Cliques hoje</div>
+      <div class="tp-compare">{{ d.ontem | num }} ontem (dia inteiro)</div>
+    </div>
+    <div class="tp-kpi">
+      <div class="tp-kpi-top"><div class="tp-icon success"><i class="ti ti-calendar-week"></i></div>
+        {% if d.sete_antes %}{% set pct = ((d.sete - d.sete_antes) / d.sete_antes * 100) | round | int %}
+        <span class="tp-delta {{ 'up' if pct > 0 else ('down' if pct < 0 else 'flat') }}"><i class="ti ti-arrow-{{ 'up' if pct >= 0 else 'down' }}-right"></i>{{ pct | abs }}%</span>{% endif %}</div>
+      <div class="tp-value">{{ d.sete | num }}</div>
+      <div class="tp-label">Cliques nos últimos 7 dias</div>
+      <div class="tp-compare">{{ d.sete_antes | num }} nos 7 dias anteriores</div>
+    </div>
+    <div class="tp-kpi">
+      <div class="tp-kpi-top"><div class="tp-icon warning"><i class="ti ti-link"></i></div></div>
+      <div class="tp-value">{{ ativos | length | num }}</div>
+      <div class="tp-label">Links ativos</div>
+      <div class="tp-compare">{{ (d.links | length) - (ativos | length) }} arquivado(s)</div>
+    </div>
+    <div class="tp-kpi">
+      <div class="tp-kpi-top"><div class="tp-icon"><i class="ti ti-trophy"></i></div></div>
+      {% if top and top.cliques_7d %}
+      <a class="tp-value sm" href="/app/links/{{ top.id }}" style="text-decoration:none" title="{{ top.titulo }}">{{ top.titulo }}</a>
+      <div class="tp-label">Mais clicado na semana</div>
+      <div class="tp-compare">{{ top.cliques_7d | num }} cliques · /{{ top.slug }}</div>
+      {% else %}
+      <div class="tp-value sm">—</div><div class="tp-label">Mais clicado na semana</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search"><i class="ti ti-search"></i><input class="input" id="f-busca" placeholder="Buscar por título, nome ou destino…" oninput="blFiltrar()"></div>
+    <select class="input" id="f-camp" onchange="blFiltrar()" title="Campanha">
+      <option value="">Todas as campanhas</option>
+      {% for c in campanhas %}<option>{{ c }}</option>{% endfor %}
+    </select>
+    <select class="input" id="f-status" onchange="blFiltrar()" title="Situação">
+      <option value="1">Ativos</option><option value="0">Arquivados</option><option value="">Todos</option>
+    </select>
+    <select class="input" id="f-ordem" onchange="blFiltrar()" title="Ordem">
+      <option value="criado">Mais recentes</option><option value="c7">Mais clicados (7 dias)</option><option value="ct">Mais clicados (total)</option>
+    </select>
+  </div>
+  <div class="toolbar">
+    <div class="chips" id="f-cats">
+      <button type="button" class="chip on" data-cat="">Todos</button>
+      {% for k, v in CATEGORIAS.items() %}<button type="button" class="chip" data-cat="{{ k }}"><i class="ti {{ v[1] }}"></i>{{ v[0] }}</button>{% endfor %}
+    </div>
+  </div>
+
+  <div class="links" id="lista">
+    {% for l in d.links %}{{ row(l) }}{% endfor %}
+  </div>
+  <div class="empty" id="vazio" style="display:none"><i class="ti ti-link-off"></i><span id="vazio-txt">Nenhum link encontrado com esses filtros.</span></div>
+</div>
+{{ modais(campanhas) }}
+{% endblock %}
+{% block scripts %}<script>blInitPainel({{ (d.links | length) }});</script>{% endblock %}

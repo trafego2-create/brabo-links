@@ -1,0 +1,84 @@
+{% macro spark(serie) -%}
+{%- set mx = (serie | max) or 1 -%}
+<svg viewBox="0 0 150 34" role="img" aria-label="Cliques por dia nos últimos 14 dias">
+  {%- for n in serie %}
+  {%- set h = (n / mx * 30) if n else 0 %}
+  {%- set x = loop.index0 * 10.7 %}
+  <rect x="{{ '%.1f' % x }}" y="{{ '%.1f' % (34 - [h, 1.5] | max) }}" width="8.7" height="{{ '%.1f' % ([h, 1.5] | max) }}" rx="2"
+        fill="{{ 'var(--bs-bar)' if n else 'var(--bs-border)' }}"><title>{{ n | num }} clique{{ '' if n == 1 else 's' }} · {{ 14 - loop.index }} dia{{ '' if 14 - loop.index == 1 else 's' }} atrás</title></rect>
+  {%- endfor %}
+</svg>
+{%- endmacro %}
+
+{% macro row(l) -%}
+<div class="lrow{% if not l.ativo %} off{% endif %}" data-id="{{ l.id }}" data-cat="{{ l.categoria }}" data-camp="{{ l.campanha }}"
+     data-ativo="{{ 1 if l.ativo else 0 }}" data-c7="{{ l.cliques_7d }}" data-ct="{{ l.cliques_total }}"
+     data-criado="{{ l.criado_em.isoformat() if l.criado_em.isoformat is defined else l.criado_em }}"
+     data-q="{{ (l.titulo ~ ' ' ~ l.slug ~ ' ' ~ l.destino ~ ' ' ~ l.campanha) | lower }}"
+     data-link='{{ {"id": l.id, "slug": l.slug, "destino": l.destino, "titulo": l.titulo, "categoria": l.categoria, "campanha": l.campanha, "ativo": l.ativo} | tojson | forceescape }}'>
+  <div class="cat-ico cat-{{ l.categoria }}" title="{{ CATEGORIAS[l.categoria][0] }}"><i class="ti {{ CATEGORIAS[l.categoria][1] }}"></i></div>
+  <div class="lmain">
+    <a class="ltitle" href="/app/links/{{ l.id }}">{{ l.titulo }}
+      {% if l.campanha %}<span class="tag camp">{{ l.campanha }}</span>{% endif %}
+      {% if not l.ativo %}<span class="tag off">arquivado</span>{% endif %}
+    </a>
+    <div class="lshort">
+      <a href="{{ BASE_CURTA }}/{{ l.slug }}" target="_blank" rel="noopener">{{ HOST_CURTO }}/{{ l.slug }}</a>
+      <button class="icon-btn" style="width:26px;height:26px;font-size:15px" title="Copiar link" onclick="blCopiar('{{ BASE_CURTA }}/{{ l.slug }}')"><i class="ti ti-copy"></i></button>
+    </div>
+    <div class="ldest" title="{{ l.destino }}"><i class="ti ti-corner-down-right"></i> {{ l.destino }}</div>
+  </div>
+  <div class="lspark">{{ spark(l.serie14) }}<small>últimos 14 dias</small></div>
+  <div class="lnum" title="{{ l.cliques_total | num }} cliques desde a criação"><b>{{ l.cliques_7d | num }}</b><small>7 dias</small></div>
+  <div class="lacts">
+    <button class="icon-btn opt" title="QR Code" onclick="blQR(this)"><i class="ti ti-qrcode"></i></button>
+    <a class="icon-btn opt" title="Estatísticas" href="/app/links/{{ l.id }}"><i class="ti ti-chart-bar"></i></a>
+    {% if u.papel != 'leitura' %}<button class="icon-btn opt" title="Editar" onclick="blEditar(this)"><i class="ti ti-pencil"></i></button>{% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro modais(campanhas) %}
+<datalist id="dl-campanhas">{% for c in campanhas %}<option value="{{ c }}">{% endfor %}</datalist>
+
+<div class="modal-bg" id="m-editar" onclick="if(event.target===this)blFechar(this)">
+  <form class="modal" onsubmit="blSalvarEdicao(event)">
+    <div class="modal-h"><h2>Editar link</h2><button type="button" class="icon-btn" onclick="blFechar(this)"><i class="ti ti-x"></i></button></div>
+    <div class="modal-b">
+      <input type="hidden" name="id">
+      <label class="field"><span>Para onde o link leva</span><input class="input" name="destino" required>
+        <small>Pode trocar à vontade: o link curto continua o mesmo e quem já tem ele cai no destino novo.</small></label>
+      <div class="field"><span>Link curto</span>
+        <div class="slug-input"><span class="pre">{{ HOST_CURTO }}/</span><input name="slug" required autocomplete="off" spellcheck="false"></div>
+        <small class="err" data-err="slug"></small>
+      </div>
+      <div class="warn" id="warn-slug"><i class="ti ti-alert-triangle"></i><div><b>Atenção:</b> ao mudar o nome, o link antigo para de funcionar. Quem já copiou ou postou o antigo vai cair na página de “link não encontrado”.</div></div>
+      <label class="field"><span>Título (só aparece aqui no painel)</span><input class="input" name="titulo"></label>
+      <div class="row2">
+        <label class="field"><span>Tipo</span><select class="input" name="categoria">{% for k, v in CATEGORIAS.items() %}<option value="{{ k }}">{{ v[0] }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Campanha / lançamento</span><input class="input" name="campanha" list="dl-campanhas" placeholder="Ex.: PES-SET-26"></label>
+      </div>
+    </div>
+    <div class="modal-f">
+      <button type="button" class="btn btn-ghost btn-danger" id="btn-arquivar" onclick="blArquivar()" style="margin-right:auto"></button>
+      <button type="button" class="btn" onclick="blFechar(this)">Cancelar</button>
+      <button class="btn btn-primary"><i class="ti ti-device-floppy"></i> Salvar</button>
+    </div>
+  </form>
+</div>
+
+<div class="modal-bg" id="m-qr" onclick="if(event.target===this)blFechar(this)">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-h"><h2>QR Code</h2><button type="button" class="icon-btn" onclick="blFechar(this)"><i class="ti ti-x"></i></button></div>
+    <div class="modal-b qr-box">
+      <img id="qr-img" alt="QR Code do link">
+      <div class="url" id="qr-url"></div>
+      <div class="note" style="text-align:center">Quem escanear passa pelo link curto, então o clique entra nas estatísticas.</div>
+    </div>
+    <div class="modal-f" style="justify-content:center">
+      <a class="btn" id="qr-png"><i class="ti ti-download"></i> PNG</a>
+      <a class="btn" id="qr-svg"><i class="ti ti-vector"></i> SVG (gráfica)</a>
+    </div>
+  </div>
+</div>
+{% endmacro %}

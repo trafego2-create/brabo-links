@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Entrar — Brabo Links</title>
+  <link rel="icon" type="image/png" href="/static/img/favicon-brabo-concursos.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="/static/css/app.css?v=1">
+  <style>
+    body { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px;
+           background:radial-gradient(circle at top right, #2a1a17 0%, #0f1118 65%); }
+    .box { width:100%; max-width:400px; background:rgba(31,35,48,.72); border:1px solid rgba(255,255,255,.08);
+           border-radius:20px; padding:32px 28px; color:#fff; box-shadow:0 30px 80px rgba(0,0,0,.45); animation:slideInUp .35s ease-out; }
+    .box img { display:block; width:190px; margin:0 auto 6px; }
+    .box h1 { text-align:center; font-size:15px; font-weight:700; color:rgba(255,255,255,.75); margin:0 0 24px; }
+    .box .field > span { color:rgba(255,255,255,.6); }
+    .box .input { background:rgba(15,17,24,.8); border-color:rgba(255,255,255,.12); color:#fff; }
+    .box .btn { width:100%; height:44px; margin-top:6px; font-size:14px; }
+    .box form { display:flex; flex-direction:column; gap:14px; }
+    .erro { background:rgba(240,84,84,.15); color:#ff9a9a; border-radius:8px; padding:9px 12px; font-size:13px; font-weight:600; display:flex; gap:8px; align-items:center; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <img src="/static/img/logo-brabo-concursos-white.svg" alt="Brabo Concursos">
+    <h1>Brabo Links</h1>
+    <form method="post" action="/login">
+      <input type="hidden" name="volta" value="{{ volta }}">
+      {% if erro %}<div class="erro"><i class="ti ti-alert-circle"></i>{{ erro }}</div>{% endif %}
+      <label class="field"><span>E-mail</span><input class="input" type="email" name="email" value="{{ email or '' }}" required autofocus autocomplete="username"></label>
+      <label class="field"><span>Senha</span><input class="input" type="password" name="senha" required autocomplete="current-password"></label>
+      <button class="btn btn-primary"><i class="ti ti-login-2"></i> Entrar</button>
+    </form>
+  </div>
+</body>
+</html>

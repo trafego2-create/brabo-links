@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% from "_macros.html" import modais with context %}
+{% block title %}{{ link.titulo }}{% endblock %}
+
+{% macro barras(itens, total, vazio="Sem cliques no período.") -%}
+{% if itens %}
+<div class="hbars">
+  {% set mx = (itens | map(attribute='n') | max) or 1 %}
+  {% for it in itens %}
+  <div class="hbar">
+    <span class="nm" title="{{ it.nome }}">{{ it.nome }}</span>
+    <span class="vl">{{ it.n | num }}<small>{{ ((it.n / total * 100) if total else 0) | round | int }}%</small></span>
+    <div class="tr"><div style="width:{{ (it.n / mx * 100) | round(1) }}%"></div></div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}<div class="none">{{ vazio }}</div>{% endif %}
+{%- endmacro %}
+
+{% block content %}
+{% set curto = BASE_CURTA ~ '/' ~ link.slug %}
+<div class="hdr">
+  <div class="hdr-title">
+    <a class="crumb" href="/app"><i class="ti ti-arrow-left"></i> Todos os links</a>
+    <div class="link-hero">
+      <div class="cat-ico cat-{{ link.categoria }}"><i class="ti {{ CATEGORIAS[link.categoria][1] }}"></i></div>
+      <div style="min-width:0">
+        <h1>{{ link.titulo }} {% if link.campanha %}<span class="tag camp">{{ link.campanha }}</span>{% endif %}{% if not link.ativo %} <span class="tag off">arquivado</span>{% endif %}</h1>
+        <a class="short" href="{{ curto }}" target="_blank" rel="noopener">{{ HOST_CURTO }}/{{ link.slug }}</a>
+        <div class="dest"><i class="ti ti-corner-down-right"></i> <a href="{{ link.destino }}" target="_blank" rel="noopener">{{ link.destino }}</a></div>
+      </div>
+    </div>
+  </div>
+  <div class="hdr-actions" id="link-acts"
+       data-link='{{ {"id": link.id, "slug": link.slug, "destino": link.destino, "titulo": link.titulo, "categoria": link.categoria, "campanha": link.campanha, "ativo": link.ativo} | tojson | forceescape }}'>
+    <button class="btn btn-primary" onclick="blCopiar('{{ curto }}')"><i class="ti ti-copy"></i> Copiar</button>
+    <button class="btn" onclick="blQR(this)"><i class="ti ti-qrcode"></i> QR Code</button>
+    {% if u.papel != 'leitura' %}<button class="btn" onclick="blEditar(this)"><i class="ti ti-pencil"></i> Editar</button>{% endif %}
+    <a class="btn" href="/app/links/{{ link.id }}/cliques.csv"><i class="ti ti-file-spreadsheet"></i> Exportar</a>
+  </div>
+</div>
+
+<div class="content">
+  <div class="toolbar" style="justify-content:space-between">
+    <div class="seg">
+      {% for k, lbl in [('7','7 dias'),('30','30 dias'),('90','90 dias'),('tudo','Desde o início')] %}
+      <a href="?periodo={{ k }}" class="{{ 'on' if periodo == k }}">{{ lbl }}</a>
+      {% endfor %}
+    </div>
+    <span class="note">Criado por {{ link.criado_por or '—' }} em {{ link.criado_em | dt }}</span>
+  </div>
+
+  <div class="tp-kpi-grid">
+    <div class="tp-kpi"><div class="tp-kpi-top"><div class="tp-icon"><i class="ti ti-click"></i></div></div>
+      <div class="tp-value">{{ st.total | num }}</div><div class="tp-label">Cliques</div>
+      <div class="tp-compare">{% if st.pico %}Pico: {{ st.pico.n | num }} em {{ st.pico.dia[8:10] }}/{{ st.pico.dia[5:7] }}{% else %}Nenhum clique ainda{% endif %}</div></div>
+    <div class="tp-kpi"><div class="tp-kpi-top"><div class="tp-icon success"><i class="ti ti-users"></i></div></div>
+      <div class="tp-value">{{ st.unicos | num }}</div><div class="tp-label">Pessoas diferentes</div>
+      <div class="tp-compare">Mesmo aparelho clicando de novo conta 1 vez</div></div>
+    <div class="tp-kpi"><div class="tp-kpi-top"><div class="tp-icon warning"><i class="ti ti-calendar-stats"></i></div></div>
+      <div class="tp-value">{{ st.media_dia | string | replace('.', ',') }}</div><div class="tp-label">Cliques por dia (média)</div>
+      <div class="tp-compare">{{ st.serie | length }} dia(s) no período</div></div>
+    <div class="tp-kpi"><div class="tp-kpi-top"><div class="tp-icon"><i class="ti ti-robot-off"></i></div></div>
+      <div class="tp-value">{{ st.bots | num }}</div><div class="tp-label">Robôs descartados</div>
+      <div class="tp-compare">Pré-visualizações de WhatsApp, Facebook etc.</div></div>
+  </div>
+
+  <div class="card">
+    <h3><i class="ti ti-chart-bar"></i> Cliques por dia <span class="muted">sem robôs</span></h3>
+    <div class="chart" id="ch-dias"><div class="tip"></div></div>
+  </div>
+
+  <div class="grid3">
+    <div class="card"><h3><i class="ti ti-world-share"></i> De onde vieram</h3>{{ barras(st.origem, st.total) }}</div>
+    <div class="card"><h3><i class="ti ti-device-mobile"></i> Aparelho</h3>{{ barras(st.dispositivo, st.total) }}
+      <h3 style="margin-top:18px"><i class="ti ti-brand-android"></i> Sistema</h3>{{ barras(st.sistema, st.total) }}</div>
+    <div class="card"><h3><i class="ti ti-browser"></i> Navegador / app</h3>{{ barras(st.navegador, st.total) }}</div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3><i class="ti ti-clock-hour-4"></i> Horário dos cliques <span class="muted">horário de Brasília</span></h3>
+      <div class="chart" id="ch-horas"><div class="tip"></div></div>
+    </div>
+    <div class="card">
+      <h3><i class="ti ti-external-link"></i> Sites que mandaram gente</h3>
+      {{ barras(st.sites, st.total, "Nenhum site identificado. Apps como WhatsApp e Instagram não informam de onde a pessoa veio — por isso a origem acima usa o app que abriu o link.") }}
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3><i class="ti ti-tag"></i> UTMs</h3>
+      {% if st.utm_source or st.utm_campaign %}
+        {% if st.utm_source %}<div class="note" style="margin-bottom:6px"><b>utm_source</b></div>{{ barras(st.utm_source, st.total) }}{% endif %}
+        {% if st.utm_campaign %}<div class="note" style="margin:14px 0 6px"><b>utm_campaign</b></div>{{ barras(st.utm_campaign, st.total) }}{% endif %}
+      {% else %}
+        <div class="note">Quer separar o mesmo link por canal? Acrescente UTMs no fim do link curto — elas aparecem aqui e seguem para o destino:<br>
+          <span class="code">{{ HOST_CURTO }}/{{ link.slug }}?utm_source=instagram</span></div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <h3><i class="ti ti-user-search"></i> Por pessoa <span class="muted">?ref=</span></h3>
+      {% if st.ref %}
+        <div class="table-wrap" style="max-height:300px;overflow-y:auto">
+          <table><thead><tr><th>Identificador</th><th style="text-align:right">Cliques</th></tr></thead>
+          <tbody>{% for r in st.ref %}<tr><td>{{ r.nome }}</td><td style="text-align:right">{{ r.n | num }}</td></tr>{% endfor %}</tbody></table>
+        </div>
+      {% else %}
+        <div class="note">Para saber <b>quem</b> clicou, mande o link com um identificador da pessoa (e-mail, telefone ou ID do lead). Ex. numa automação de e-mail:<br>
+          <span class="code">{{ HOST_CURTO }}/{{ link.slug }}?ref=%EMAIL%</span><br>Cada pessoa aparece aqui com quantas vezes clicou, e o CSV traz data e hora de cada clique.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{{ modais(campanhas) }}
+{% endblock %}
+{% block scripts %}
+<script>
+  blBarras('ch-dias', {{ st.serie | tojson }}, 'dia');
+  blBarras('ch-horas', {{ st.horas | tojson }}.map((n, h) => ({ rot: String(h).padStart(2, '0') + 'h', n })), 'hora');
+</script>
+{% endblock %}
