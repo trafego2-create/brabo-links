@@ -2,8 +2,8 @@
 
 Rotas:
   /{slug}            redireciona e registra o clique (público)
-  /app ...           painel (login)
-  /api ...           ações do painel (JSON, com CSRF)
+  /app ...           painel (login) — com PAINEL_URL, redireciona pro Brabo Analytics
+  /api ...           ações do painel (JSON, com CSRF) — idem, 410
 """
 import asyncio
 import csv
@@ -47,10 +47,15 @@ async def _loop_gravacao() -> None:
 
 
 async def _loop_cache() -> None:
+    ultima_completa = time.monotonic()
     while True:
         await asyncio.sleep(config.CACHE_REFRESH_SECONDS)
         try:
-            await to_thread.run_sync(store.recarregar_cache)
+            if time.monotonic() - ultima_completa >= config.CACHE_FULL_SECONDS:
+                await to_thread.run_sync(store.recarregar_cache)
+                ultima_completa = time.monotonic()
+            else:
+                await to_thread.run_sync(store.atualizar_cache)
         except Exception:
             log.exception("refresh do cache")
 
@@ -145,6 +150,24 @@ def pagina(req: Request) -> dict | RedirectResponse:
 
 def render(req: Request, nome: str, u: dict | None, **ctx) -> HTMLResponse:
     return templates.TemplateResponse(req, nome, {"u": u, **ctx})
+
+
+@app.middleware("http")
+async def _painel_no_analytics(req: Request, call_next):
+    """Com PAINEL_URL, o painel daqui foi aposentado: quem abre /app ou /login vai
+    pro Encurtador do Brabo Analytics. Os links curtos seguem funcionando aqui."""
+    p = req.url.path
+    if config.PAINEL_URL:
+        if p == "/" or p == "/login" or p == "/app" or p.startswith("/app/"):
+            destino = config.PAINEL_URL + "/links"
+            if p.startswith("/app/links/"):
+                lid = p.split("/")[3]
+                if lid.isdigit():
+                    destino += f"/{lid}"
+            return RedirectResponse(destino, status_code=302)
+        if p.startswith("/api/"):
+            return JSONResponse({"erro": "O painel agora fica no Brabo Analytics (menu Links)."}, status_code=410)
+    return await call_next(req)
 
 
 @app.exception_handler(HTTPException)

@@ -165,3 +165,40 @@ def test_utms_fixas_no_padrao_do_active(c):
 def test_utm_source_sem_medium(c):
     r = c.post("/api/links", json={"destino": "https://a.com", "slug": "so-source", "utm_source": "ig"})
     assert r.status_code == 400 and "utm_medium" in r.json()["erro"]
+
+
+def test_cache_incremental_pega_edicao_feita_fora(c):
+    """Link criado/editado pelo Brabo Analytics (direto no banco) chega no cache
+    pelo atualizar_cache, sem reler tudo."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import insert, update
+
+    from app.db import links
+
+    st = main.store
+    st.recarregar_cache()
+    depois = datetime.now(timezone.utc) + timedelta(seconds=1)
+    with st.engine.begin() as cx:
+        cx.execute(insert(links).values(slug="feito-no-analytics", destino="https://exemplo.com/a", titulo="x",
+                                        criado_em=depois, atualizado_em=depois))
+    assert st.atualizar_cache() == 1
+    assert st._cache["feito-no-analytics"]["destino"] == "https://exemplo.com/a"
+    depois2 = depois + timedelta(seconds=1)
+    with st.engine.begin() as cx:
+        cx.execute(update(links).where(links.c.slug == "feito-no-analytics")
+                   .values(slug="renomeado-no-analytics", ativo=False, atualizado_em=depois2))
+    assert st.atualizar_cache() == 1
+    assert "feito-no-analytics" not in st._cache
+    assert st._cache["renomeado-no-analytics"]["ativo"] is False
+    assert st.atualizar_cache() == 0
+
+
+def test_painel_aposentado_vai_pro_analytics(c, monkeypatch):
+    monkeypatch.setattr(main.config, "PAINEL_URL", "https://analytics.exemplo.com")
+    r = c.get("/app/links/7", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "https://analytics.exemplo.com/links/7"
+    assert c.get("/login", follow_redirects=False).headers["location"] == "https://analytics.exemplo.com/links"
+    assert c.post("/api/links", json={}).status_code == 410
+    # link curto continua redirecionando
+    assert c.get("/aula-inss", follow_redirects=False).status_code == 302

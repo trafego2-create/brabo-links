@@ -103,6 +103,7 @@ class Store:
         self.engine = engine
         self.pg = engine.dialect.name == "postgresql"
         self._cache: dict[str, dict] = {}
+        self._visto_ate: datetime | None = None
         self._cache_lock = threading.Lock()
         self._buffer: list[dict] = []
         self._buf_lock = threading.Lock()
@@ -152,10 +153,28 @@ class Store:
     # ── Cache de redirecionamento ──
     def recarregar_cache(self) -> None:
         with self.engine.connect() as c:
-            rows = c.execute(select(*[links.c[k] for k in _CACHE_COLS])).mappings().all()
-        novo = {r["slug"]: dict(r) for r in rows}
+            rows = c.execute(select(*[links.c[k] for k in _CACHE_COLS], links.c.atualizado_em)).mappings().all()
+        novo = {r["slug"]: {k: r[k] for k in _CACHE_COLS} for r in rows}
         with self._cache_lock:
             self._cache = novo
+            self._visto_ate = max((r["atualizado_em"] for r in rows), default=None)
+
+    def atualizar_cache(self) -> int:
+        """Puxa só os links alterados desde a última leitura (criados ou editados no
+        painel do Analytics). Não apaga nada: link não é excluído, só arquivado."""
+        desde = self._visto_ate
+        if desde is None:
+            self.recarregar_cache()
+            return -1
+        with self.engine.connect() as c:
+            rows = c.execute(select(*[links.c[k] for k in _CACHE_COLS], links.c.atualizado_em)
+                             .where(links.c.atualizado_em > desde)).mappings().all()
+        for r in rows:
+            self._cache_put(dict(r))
+        if rows:
+            with self._cache_lock:
+                self._visto_ate = max(self._visto_ate or desde, *(r["atualizado_em"] for r in rows))
+        return len(rows)
 
     def resolver(self, slug: str) -> dict | None:
         with self._cache_lock:

@@ -44,4 +44,12 @@ TZ = os.getenv("TZ_NAME", "America/Sao_Paulo")
 
 # Gravação dos cliques em lote (não bloqueia o redirecionamento)
 FLUSH_SECONDS = float(os.getenv("FLUSH_SECONDS", "2"))
-CACHE_REFRESH_SECONDS = float(os.getenv("CACHE_REFRESH_SECONDS", "30"))
+# Cache de redirecionamento: a cada CACHE_REFRESH_SECONDS puxa só os links alterados
+# (atualizado_em); de tempo em tempo relê tudo, por garantia.
+CACHE_REFRESH_SECONDS = float(os.getenv("CACHE_REFRESH_SECONDS", "10"))
+CACHE_FULL_SECONDS = float(os.getenv("CACHE_FULL_SECONDS", "600"))
+
+# Painel no Brabo Analytics (ex.: https://analytics.exemplo.com). Preenchido, o painel
+# daqui (/app, /login) só redireciona pra lá e este app fica só com o redirecionamento
+# dos links curtos. Vazio, o painel próprio continua funcionando.
+PAINEL_URL = os.getenv("PAINEL_URL", "").strip().rstrip("/")
